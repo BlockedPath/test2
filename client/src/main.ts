@@ -1,19 +1,29 @@
 import { Client, type Room } from "colyseus.js";
 import type { Graphics } from "pixi.js";
 
+import { createLobbyUI } from "./lobby/lobby.js";
 import { createPixiApp } from "./pixi/app.js";
 import { createFovMask, updateFovMask } from "./pixi/fov.js";
 import { WORLD_SIZE, createPlayerGraphics, createWorld } from "./pixi/scene.js";
 
 type PlayerSnapshot = { x: number; y: number; angle: number; hp: number; armor: number };
-type StateSnapshot = { tick: number; players: Map<string, PlayerSnapshot> };
+type StateSnapshot = {
+  tick: number;
+  lobby: boolean;
+  lobbyCountdown: number;
+  players: Map<string, PlayerSnapshot>;
+  ready: Map<string, boolean>;
+};
+
+// LobbyState mirrors server ready map shape
 
 const statusElement = document.querySelector<HTMLParagraphElement>("#connection-status");
+const lobbyContainer = document.querySelector<HTMLDivElement>("#lobby-root");
 const pixiContainer = document.querySelector<HTMLDivElement>("#pixi-root");
 const debugElement = document.querySelector<HTMLPreElement>("#snapshot-output");
 
-if (!statusElement || !pixiContainer || !debugElement) {
-  throw new Error("HTML missing #connection-status / #pixi-root / #snapshot-output.");
+if (!statusElement || !lobbyContainer || !pixiContainer || !debugElement) {
+  throw new Error("HTML missing #connection-status / #lobby-root / #pixi-root / #snapshot-output.");
 }
 
 const endpoint =
@@ -41,11 +51,10 @@ window.addEventListener("pointermove", (e) => {
 window.addEventListener("pointerdown", () => (wantsToShoot = true));
 window.addEventListener("pointerup", () => (wantsToShoot = false));
 
-// Pixi world
+// Pixi world (hidden until lobby ends)
 const app = await createPixiApp(pixiContainer, 800, 800);
 const world = createWorld();
 app.stage.addChild(world);
-
 const fovMask = createFovMask();
 world.addChild(fovMask);
 world.mask = fovMask;
@@ -65,21 +74,51 @@ function getPlayerNode(sessionId: string): Graphics {
   return entry.g;
 }
 
+// Lobby UI
+const lobbyUI = createLobbyUI(lobbyContainer, (ready) => {
+  if (!room) return;
+  room.send("ready", { ready });
+});
+
 void connect();
 
 async function connect(): Promise<void> {
   statusElement!.textContent = `Connecting to ${endpoint}…`;
   room = await client.joinOrCreate<StateSnapshot>("br_room");
-  statusElement!.textContent = `Connected ${room.roomId} — Pixi 7.4 @ 60fps, 20→60 interp, cone 120°`;
+  statusElement!.textContent = `Lobby ${room.roomId} — waiting for 10 ready (≥6 after 30s)`;
 
   room.onStateChange((next: StateSnapshot) => {
     previousState = latestState;
     latestState = next;
     latestSnapshotAt = performance.now();
+
+    // Update lobby UI
+    lobbyUI.update({ lobby: next.lobby, countdown: next.lobbyCountdown, players: next.ready }, room.sessionId);
+    lobbyUI.setCountdown(next.lobbyCountdown);
+
+    // Toggle lobby vs game view
+    if (next.lobby) {
+      lobbyContainer!.style.display = "";
+      pixiContainer!.style.display = "none";
+      statusElement!.textContent = `Lobby ${room.roomId} — ${next.players.size}/20 players — ${[...next.ready.values()].filter(Boolean).length} ready`;
+    } else {
+      lobbyContainer!.style.display = "none";
+      pixiContainer!.style.display = "";
+      statusElement!.textContent = `Match ${room.roomId} — Pixi 7.4 @ 60fps, 20→60 interp, cone 120°`;
+    }
+  });
+
+  room.onMessage("match_start", () => {
+    statusElement!.textContent = `Match started — ${room.roomId}`;
+  });
+
+  room.onLeave((code) => {
+    // 15s reconnect window per #10: colyseus.js will auto-reconnect if allowReconnection was used
+    statusElement!.textContent = `Left (code ${code}) — reconnect within 15s if in match`;
   });
 
   setInterval(() => {
-    if (!room) return;
+    if (!room || latestState?.lobby) return;
     room.send("input", {
       seq: sequence++,
       ts: Date.now(),
@@ -97,10 +136,8 @@ async function connect(): Promise<void> {
 }
 
 function tick(now: number): void {
-  if (latestState) {
+  if (latestState && !latestState.lobby) {
     const alpha = Math.min(1, Math.max(0, (now - latestSnapshotAt) / 50));
-
-    // Update player sprites via interpolation (snapshot-interpolation style lerp)
     for (const [sid, snap] of latestState.players) {
       const prior = previousState?.players.get(sid);
       const x = lerp(prior?.x ?? snap.x, snap.x, alpha);
@@ -111,7 +148,6 @@ function tick(now: number): void {
       node.y = y;
       node.rotation = angle;
     }
-    // Remove disconnected
     for (const sid of [...playerNodes.keys()]) {
       if (!latestState.players.has(sid)) {
         const entry = playerNodes.get(sid);
@@ -121,8 +157,6 @@ function tick(now: number): void {
         }
       }
     }
-
-    // Camera: tight follow with mouse look-ahead (per CONTEXT.md)
     const own = latestState.players.get(room.sessionId);
     const priorOwn = previousState?.players.get(room.sessionId);
     if (own) {
@@ -131,14 +165,9 @@ function tick(now: number): void {
       const lookAhead = 60;
       const lx = Math.cos(own.angle) * lookAhead;
       const ly = Math.sin(own.angle) * lookAhead;
-      const camX = WORLD_SIZE / 2 - (cx + lx * 0.3);
-      const camY = WORLD_SIZE / 2 - (cy + ly * 0.3);
-      world.x = camX;
-      world.y = camY;
-
-      // FOV cone (120° forward, soft)
+      world.x = WORLD_SIZE / 2 - (cx + lx * 0.3);
+      world.y = WORLD_SIZE / 2 - (cy + ly * 0.3);
       updateFovMask(fovMask, cx, cy, own.angle);
-
       debugElement!.textContent = JSON.stringify(
         { tick: latestState.tick, alpha: Number(alpha.toFixed(2)), own: { x: Math.round(cx), y: Math.round(cy), hp: own.hp } },
         null,
@@ -146,8 +175,6 @@ function tick(now: number): void {
       );
     }
   }
-
-  // draw-call guardrail hint (§4): keep world children ≤50/100, no extra filters this scaffold
   requestAnimationFrame(tick);
 }
 

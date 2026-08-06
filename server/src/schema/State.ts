@@ -57,4 +57,13 @@ export class GameState extends Schema {
 
   @type("uint32")
   tick = 0;
+
+  @type("boolean")
+  lobby = true;
+
+  @type("uint8")
+  lobbyCountdown = 0;
+
+  @type({ map: "boolean" })
+  ready = new MapSchema<boolean>();
 }

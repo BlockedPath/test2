@@ -65,6 +65,8 @@ export class BRRoom extends Room<GameState> {
 
   onCreate(): void {
     this.setState(new GameState());
+    this.state.lobby = true;
+    this.state.lobbyCountdown = 0;
 
     // Schema mutations are automatically encoded as delta patches.
     this.setPatchRate(TICK_MS);
@@ -75,33 +77,104 @@ export class BRRoom extends Room<GameState> {
     }, TICK_MS);
 
     this.onMessage("input", (client, message: unknown) => {
+      // No movement until lobby ends — per #10 lobby flow
+      if (this.state.lobby) return;
       this.acceptInput(client, message);
+    });
+
+    this.onMessage("ready", (client, message: unknown) => {
+      this.handleReady(client, message);
     });
 
     this.clock.setInterval(() => {
       this.emitMetricsStub();
     }, 10_000);
+
+    // Lobby timeout: start with ≥6 after 30s (per #10 acceptance)
+    this.clock.setTimeout(() => {
+      if (this.state.lobby && this.state.players.size >= 6) {
+        this.startCountdown("timeout ≥6 after 30s");
+      }
+    }, 30_000);
   }
 
   onJoin(client: Client): void {
     const player = new Player();
-
-    // Spawn placement is deliberately temporary. Ticket #6 established
-    // scattered Spawn + 2s invulnerability; that gameplay wiring belongs in
-    // its dedicated implementation slice, not this server-hot-path scaffold.
     player.x = 0;
     player.y = 0;
     player.angle = 0;
     player.hp = 100;
     player.armor = 0;
-
     this.state.players.set(client.sessionId, player);
+    this.state.ready.set(client.sessionId, false);
+    // Reconnect grace handled via allowReconnection in onLeave
   }
 
-  onLeave(client: Client): void {
+  async onLeave(client: Client, _consented: boolean): Promise<void> {
     this.latestInputs.delete(client.sessionId);
     this.inputWindows.delete(client.sessionId);
-    this.state.players.delete(client.sessionId);
+    if (this.state.lobby) {
+      this.state.ready.delete(client.sessionId);
+      this.state.players.delete(client.sessionId);
+      return;
+    }
+    // In match, allow 15s reconnect per #10 acceptance
+    try {
+      await this.allowReconnection(client, 15);
+      // Reconnected — keep player
+      return;
+    } catch {
+      // Timeout — remove
+      this.state.ready.delete(client.sessionId);
+      this.state.players.delete(client.sessionId);
+    }
+  }
+
+  private handleReady(client: Client, message: unknown): void {
+    const ready = (message as { ready?: boolean })?.ready === true;
+    this.state.ready.set(client.sessionId, ready);
+    this.checkLobbyStart();
+  }
+
+  private checkLobbyStart(): void {
+    if (!this.state.lobby || this.state.lobbyCountdown > 0) return;
+    const readyCount = [...this.state.ready.values()].filter(Boolean).length;
+    const total = this.state.players.size;
+    // Start when 10 ready (full), or timeout already handled - immediate if 10 ready
+    if (readyCount >= 10 && total >= 10) {
+      this.startCountdown("10 ready");
+    } else if (readyCount === total && total >= 6 && total < 10) {
+      // Optional: if all present are ready and ≥6, allow early start after short delay
+      // Keep 30s timeout as main gate; no immediate start here to avoid impatience
+    }
+  }
+
+  private startCountdown(reason: string): void {
+    if (this.state.lobbyCountdown > 0) return;
+    console.info(`lobby countdown start: ${reason}`);
+    this.state.lobbyCountdown = 5;
+    const tickDown = () => {
+      if (this.state.lobbyCountdown <= 1) {
+        this.startMatch();
+        return;
+      }
+      this.state.lobbyCountdown -= 1;
+      this.clock.setTimeout(tickDown, 1000);
+    };
+    this.clock.setTimeout(tickDown, 1000);
+  }
+
+  private startMatch(): void {
+    this.state.lobby = false;
+    this.state.lobbyCountdown = 0;
+    this.lock(); // no new joins after start (backfill disabled v1 per #10)
+    // Scattered spawn: random within 800×800, avoid center clustering
+    for (const player of this.state.players.values()) {
+      player.x = 80 + Math.random() * 640;
+      player.y = 80 + Math.random() * 640;
+      player.angle = Math.random() * Math.PI * 2;
+    }
+    this.broadcast("match_start", { tick: this.state.tick });
   }
 
   private fixedTick(deltaTimeMs: number): void {
@@ -109,6 +182,14 @@ export class BRRoom extends Room<GameState> {
     const deltaSeconds = deltaTimeMs / 1_000;
 
     this.state.tick += 1;
+
+    // Lobby: freeze simulation until countdown ends
+    if (this.state.lobby) {
+      if (this.state.lobbyCountdown > 0) {
+        // Countdown driven by clock, not tick
+      }
+      return;
+    }
 
     for (const [sessionId, input] of this.latestInputs) {
       const player = this.state.players.get(sessionId);
