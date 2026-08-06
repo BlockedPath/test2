@@ -1,27 +1,19 @@
 import { Client, type Room } from "colyseus.js";
+import type { Graphics } from "pixi.js";
 
-type PlayerSnapshot = {
-  x: number;
-  y: number;
-  angle: number;
-  hp: number;
-  armor: number;
-};
+import { createPixiApp } from "./pixi/app.js";
+import { createFovMask, updateFovMask } from "./pixi/fov.js";
+import { WORLD_SIZE, createPlayerGraphics, createWorld } from "./pixi/scene.js";
 
-type StateSnapshot = {
-  tick: number;
-  players: Map<string, PlayerSnapshot>;
-};
+type PlayerSnapshot = { x: number; y: number; angle: number; hp: number; armor: number };
+type StateSnapshot = { tick: number; players: Map<string, PlayerSnapshot> };
 
-const statusElement = document.querySelector<HTMLParagraphElement>(
-  "#connection-status",
-);
-const outputElement = document.querySelector<HTMLPreElement>(
-  "#snapshot-output",
-);
+const statusElement = document.querySelector<HTMLParagraphElement>("#connection-status");
+const pixiContainer = document.querySelector<HTMLDivElement>("#pixi-root");
+const debugElement = document.querySelector<HTMLPreElement>("#snapshot-output");
 
-if (!statusElement || !outputElement) {
-  throw new Error("Tick scaffold HTML is missing required output elements.");
+if (!statusElement || !pixiContainer || !debugElement) {
+  throw new Error("HTML missing #connection-status / #pixi-root / #snapshot-output.");
 }
 
 const endpoint =
@@ -39,49 +31,55 @@ const pressedKeys = new Set<string>();
 let pointerAngle = 0;
 let wantsToShoot = false;
 
-window.addEventListener("keydown", (event) => {
-  pressedKeys.add(event.key.toLowerCase());
+window.addEventListener("keydown", (e) => pressedKeys.add(e.key.toLowerCase()));
+window.addEventListener("keyup", (e) => pressedKeys.delete(e.key.toLowerCase()));
+window.addEventListener("pointermove", (e) => {
+  const cx = window.innerWidth / 2;
+  const cy = window.innerHeight / 2;
+  pointerAngle = Math.atan2(e.clientY - cy, e.clientX - cx);
 });
+window.addEventListener("pointerdown", () => (wantsToShoot = true));
+window.addEventListener("pointerup", () => (wantsToShoot = false));
 
-window.addEventListener("keyup", (event) => {
-  pressedKeys.delete(event.key.toLowerCase());
-});
+// Pixi world
+const app = await createPixiApp(pixiContainer, 800, 800);
+const world = createWorld();
+app.stage.addChild(world);
 
-window.addEventListener("pointermove", (event) => {
-  const centerX = window.innerWidth / 2;
-  const centerY = window.innerHeight / 2;
-  pointerAngle = Math.atan2(event.clientY - centerY, event.clientX - centerX);
-});
+const fovMask = createFovMask();
+world.addChild(fovMask);
+world.mask = fovMask;
 
-window.addEventListener("pointerdown", () => {
-  wantsToShoot = true;
-});
+const playerNodes = new Map<string, { g: Graphics; color: number }>();
+const colors = [0x00ff88, 0xff4444, 0x44aaff, 0xffaa00, 0xaa44ff];
 
-window.addEventListener("pointerup", () => {
-  wantsToShoot = false;
-});
+function getPlayerNode(sessionId: string): Graphics {
+  let entry = playerNodes.get(sessionId);
+  if (!entry) {
+    const color = colors[playerNodes.size % colors.length]!;
+    const g = createPlayerGraphics(color);
+    entry = { g, color };
+    playerNodes.set(sessionId, entry);
+    world.addChild(g);
+  }
+  return entry.g;
+}
 
 void connect();
 
 async function connect(): Promise<void> {
   statusElement!.textContent = `Connecting to ${endpoint}…`;
-
   room = await client.joinOrCreate<StateSnapshot>("br_room");
+  statusElement!.textContent = `Connected ${room.roomId} — Pixi 7.4 @ 60fps, 20→60 interp, cone 120°`;
 
-  statusElement!.textContent = `Connected to Match ${room.roomId}`;
-
-  /**
-   * Colyseus delivers 20Hz schema delta patches. This placeholder captures
-   * successive snapshots and interpolates them on requestAnimationFrame.
-   * PixiJS rendering is deliberately deferred to ticket #12.
-   */
-  room.onStateChange((nextState: StateSnapshot) => {
+  room.onStateChange((next: StateSnapshot) => {
     previousState = latestState;
-    latestState = nextState;
+    latestState = next;
     latestSnapshotAt = performance.now();
   });
 
-  window.setInterval(() => {
+  setInterval(() => {
+    if (!room) return;
     room.send("input", {
       seq: sequence++,
       ts: Date.now(),
@@ -92,47 +90,76 @@ async function connect(): Promise<void> {
         shoot: wantsToShoot,
       },
     });
-
     wantsToShoot = false;
   }, 50);
 
-  requestAnimationFrame(renderInterpolationStub);
+  requestAnimationFrame(tick);
 }
 
-function renderInterpolationStub(now: number): void {
+function tick(now: number): void {
   if (latestState) {
-    // At 20Hz, render between patches for a 60Hz display. Clamping prevents
-    // extrapolating stale server state; client prediction is intentionally off.
     const alpha = Math.min(1, Math.max(0, (now - latestSnapshotAt) / 50));
-    const ownPlayer = latestState.players.get(room.sessionId);
-    const priorPlayer = previousState?.players.get(room.sessionId);
 
-    const x = interpolate(priorPlayer?.x ?? ownPlayer?.x ?? 0, ownPlayer?.x ?? 0, alpha);
-    const y = interpolate(priorPlayer?.y ?? ownPlayer?.y ?? 0, ownPlayer?.y ?? 0, alpha);
+    // Update player sprites via interpolation (snapshot-interpolation style lerp)
+    for (const [sid, snap] of latestState.players) {
+      const prior = previousState?.players.get(sid);
+      const x = lerp(prior?.x ?? snap.x, snap.x, alpha);
+      const y = lerp(prior?.y ?? snap.y, snap.y, alpha);
+      const angle = lerpAngle(prior?.angle ?? snap.angle, snap.angle, alpha);
+      const node = getPlayerNode(sid);
+      node.x = x;
+      node.y = y;
+      node.rotation = angle;
+    }
+    // Remove disconnected
+    for (const sid of [...playerNodes.keys()]) {
+      if (!latestState.players.has(sid)) {
+        const entry = playerNodes.get(sid);
+        if (entry) {
+          world.removeChild(entry.g);
+          playerNodes.delete(sid);
+        }
+      }
+    }
 
-    outputElement!.textContent = JSON.stringify(
-      {
-        tick: latestState.tick,
-        interpolationAlpha: Number(alpha.toFixed(2)),
-        ownPlayer: {
-          x: Number(x.toFixed(2)),
-          y: Number(y.toFixed(2)),
-          hp: ownPlayer?.hp ?? 0,
-          armor: ownPlayer?.armor ?? 0,
-        },
-      },
-      null,
-      2,
-    );
+    // Camera: tight follow with mouse look-ahead (per CONTEXT.md)
+    const own = latestState.players.get(room.sessionId);
+    const priorOwn = previousState?.players.get(room.sessionId);
+    if (own) {
+      const cx = lerp(priorOwn?.x ?? own.x, own.x, alpha);
+      const cy = lerp(priorOwn?.y ?? own.y, own.y, alpha);
+      const lookAhead = 60;
+      const lx = Math.cos(own.angle) * lookAhead;
+      const ly = Math.sin(own.angle) * lookAhead;
+      const camX = WORLD_SIZE / 2 - (cx + lx * 0.3);
+      const camY = WORLD_SIZE / 2 - (cy + ly * 0.3);
+      world.x = camX;
+      world.y = camY;
+
+      // FOV cone (120° forward, soft)
+      updateFovMask(fovMask, cx, cy, own.angle);
+
+      debugElement!.textContent = JSON.stringify(
+        { tick: latestState.tick, alpha: Number(alpha.toFixed(2)), own: { x: Math.round(cx), y: Math.round(cy), hp: own.hp } },
+        null,
+        2,
+      );
+    }
   }
 
-  requestAnimationFrame(renderInterpolationStub);
+  // draw-call guardrail hint (§4): keep world children ≤50/100, no extra filters this scaffold
+  requestAnimationFrame(tick);
 }
 
-function axis(positive: string, negative: string): number {
-  return Number(pressedKeys.has(positive)) - Number(pressedKeys.has(negative));
+function axis(pos: string, neg: string): number {
+  return Number(pressedKeys.has(pos)) - Number(pressedKeys.has(neg));
 }
-
-function interpolate(from: number, to: number, alpha: number): number {
-  return from + (to - from) * alpha;
+function lerp(a: number, b: number, t: number): number {
+  return a + (b - a) * t;
+}
+function lerpAngle(a: number, b: number, t: number): number {
+  let d = b - a;
+  while (d > Math.PI) d -= Math.PI * 2;
+  while (d < -Math.PI) d += Math.PI * 2;
+  return a + d * t;
 }
