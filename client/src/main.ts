@@ -1,6 +1,8 @@
 import { Client, type Room } from "colyseus.js";
 import type { Graphics } from "pixi.js";
 
+import { AudioManager } from "./audio/audio.js";
+import { FxPool } from "./fx/pool.js";
 import { createLobbyUI } from "./lobby/lobby.js";
 import { createPixiApp } from "./pixi/app.js";
 import { createFovMask, updateFovMask } from "./pixi/fov.js";
@@ -13,6 +15,7 @@ type StateSnapshot = {
   lobbyCountdown: number;
   players: Map<string, PlayerSnapshot>;
   ready: Map<string, boolean>;
+  bullets: Map<string, { x: number; y: number; angle: number; ownerSessionId: string; spawnedAtTick: number }>;
 };
 
 // LobbyState mirrors server ready map shape
@@ -58,6 +61,19 @@ app.stage.addChild(world);
 const fovMask = createFovMask();
 world.addChild(fovMask);
 world.mask = fovMask;
+
+// Audio + FX per #13: pooled, ≤6 concurrent, distance-attenuated 120m
+const audio = new AudioManager();
+const fx = new FxPool(world);
+// Mute toggle (persists via localStorage)
+const muteBtn = document.createElement("button");
+muteBtn.textContent = localStorage.getItem("br_muted") === "1" ? "Unmute" : "Mute";
+muteBtn.style.cssText = "margin-left:12px;padding:4px 8px;";
+muteBtn.addEventListener("click", () => {
+  const m = audio.toggleMute();
+  muteBtn.textContent = m ? "Unmute" : "Mute";
+});
+statusElement.parentElement?.appendChild(muteBtn);
 
 const playerNodes = new Map<string, { g: Graphics; color: number }>();
 const colors = [0x00ff88, 0xff4444, 0x44aaff, 0xffaa00, 0xaa44ff];
@@ -119,6 +135,15 @@ async function connect(): Promise<void> {
 
   setInterval(() => {
     if (!room || latestState?.lobby) return;
+    const shooting = wantsToShoot;
+    // Local FX/audio prediction (pooled, ≤6 concurrent, no per-tick alloc)
+    if (shooting && latestState) {
+      const own = latestState.players.get(room.sessionId);
+      if (own) {
+        fx.muzzle(own.x, own.y, pointerAngle);
+        audio.play("shoot_ar", 0);
+      }
+    }
     room.send("input", {
       seq: sequence++,
       ts: Date.now(),
@@ -126,7 +151,7 @@ async function connect(): Promise<void> {
         moveX: axis("d", "a"),
         moveY: axis("s", "w"),
         aim: pointerAngle,
-        shoot: wantsToShoot,
+        shoot: shooting,
       },
     });
     wantsToShoot = false;
