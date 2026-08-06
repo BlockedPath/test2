@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0"
+    />
+    <title>test2 BR — PixiJS + 20Hz Tick</title>
+    <style>
+      body { margin: 0; background: #111; color: #eee; font-family: sans-serif; }
+      #pixi-root canvas { display: block; margin: 0 auto; border: 1px solid #333; }
+      #hud { text-align: center; padding: 8px; }
+      pre { background: #222; padding: 8px; margin: 8px auto; max-width: 800px; overflow: auto; font-size: 12px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1 style="text-align:center;">Realistic Top-Down BR — PixiJS 7.4 @ 60fps + 20Hz Tick</h1>
+      <div id="lobby-root"></div>
+      <div id="pixi-root" style="display:none;"></div>
+      <div id="hud">
+        <p id="connection-status">Connecting…</p>
+        <pre id="snapshot-output">No snapshot received.</pre>
+      </div>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
