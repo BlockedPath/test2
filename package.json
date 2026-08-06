@@ -7,8 +7,8 @@
     "node": ">=20"
   },
   "scripts": {
-    "dev": "concurrently \"tsx watch server/src/index.ts\" \"vite --root client\"",
-    "build": "tsc --noEmit && vite build --root client",
+    "dev": "concurrently \"tsx watch server/src/index.ts\" \"vite client\"",
+    "build": "tsc --noEmit && vite build client",
     "start": "tsx server/src/index.ts",
     "loadtest": "tsx server/src/loadtest/bot.ts"
   },
