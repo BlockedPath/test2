@@ -95,6 +95,16 @@ const lobbyUI = createLobbyUI(lobbyContainer, (ready) => {
   if (!room) return;
   room.send("ready", { ready });
 });
+// Dev shortcut: start with 2 for solo testing (bypasses 10-ready gate)
+const devBtn = document.createElement("button");
+devBtn.textContent = "Start with 2 (dev)";
+devBtn.title = "Solo test: start match with 2 players";
+devBtn.style.cssText = "margin:8px auto;display:block;padding:6px 12px;background:#d73;color:#fff;border:none;cursor:pointer;";
+devBtn.addEventListener("click", () => {
+  if (!room) return;
+  room.send("dev_start", {});
+});
+lobbyContainer.appendChild(devBtn);
 
 void connect();
 

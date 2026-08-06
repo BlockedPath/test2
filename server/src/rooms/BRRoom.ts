@@ -86,6 +86,15 @@ export class BRRoom extends Room<GameState> {
       this.handleReady(client, message);
     });
 
+    this.onMessage("dev_start", (client) => {
+      if (!this.state.lobby) return;
+      // Dev shortcut: allow 2+ to start immediately for solo testing
+      if (this.state.players.size >= 2) {
+        console.info(`dev_start from ${client.sessionId} — starting with ${this.state.players.size}`);
+        this.startCountdown("dev 2-player");
+      }
+    });
+
     this.clock.setInterval(() => {
       this.emitMetricsStub();
     }, 10_000);
