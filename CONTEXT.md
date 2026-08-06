@@ -13,8 +13,8 @@
 - **Healing** — **Bandage** 3s interruptible cast (small heal), **Medkit** 6s interruptible (full heal). Interrupt on damage/movement. No fast/instant heals, no passive regen — stops heal-spamming in final zone.
 - **Zone (Circle)** — Shrinking playable area. **3 phases** for 8-min: Phase 0 (0–2 min) large, Phase 1 (2–5 min) medium, Phase 2 (5–8 min) final ~30% map. Damage ticks up each phase; lethal 10s after close. *Avoid: storm.*
 - **Phase** — One zone state between shrinks.
-- **POI (Point of Interest)** — Named map area with role (hot vs edge). Connected by roads/cover/foliage grammar.
-- **Cover** — Hard (walls) blocks line-of-sight and bullets; soft (foliage) blocks sight only.
+- **POI (Point of Interest)** — Named map area with role. **For this map: 5 POIs on 800×800m (~50×50 tiles) — 1 hot center `Citadel` + 4 edge `North Depot`, `East Yard`, `South Outpost`, `West Fields`**, connected by cross roads (8m) and cover grammar. Hot richer loot, edges lean.
+- **Cover** — Hard (walls/containers/buildings) blocks LOS **and** bullets; soft (foliage/tall grass) blocks sight only. **For this map: medium density, ~120m sight caps (7–8 tiles), ~40% inter-POI cover — no 200m lanes, not maze-like.**
 - **Controls** — **WASD + mouse aim** — move with WASD, turn/aim with mouse, fire on mouse click. Input buffered per tick (20Hz). *Avoid: click-to-move.*
 - **Camera** — **Follow tight** with mouse-direction look-ahead — camera centered on player, shifts toward cursor. Not fixed, not loose wide.
 - **FOV / Fog-of-War** — **120° forward cone + occlusion** — walls block sight and bullets (hard cover), foliage blocks sight only (soft). Outside cone is fogged; hard cover casts shadow. 360° vision explicitly excluded for realism.
