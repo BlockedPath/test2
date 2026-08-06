@@ -1,0 +1,36 @@
+{
+  "name": "test2-br",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "concurrently \"tsx watch server/src/index.ts\" \"vite --root client\"",
+    "build": "tsc --noEmit && vite build --root client",
+    "start": "tsx server/src/index.ts",
+    "loadtest": "tsx server/src/loadtest/bot.ts"
+  },
+  "dependencies": {
+    "@colyseus/schema": "^3.0.0",
+    "@colyseus/ws-transport": "^0.16.0",
+    "colyseus": "^0.16.0",
+    "colyseus.js": "^0.16.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/ws": "^8.5.13",
+    "concurrently": "^9.1.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0",
+    "vite": "^6.0.0"
+  },
+  "allowScripts": {
+    "msgpackr-extract@3.0.4": true,
+    "esbuild@0.28.1": true,
+    "esbuild@0.25.12": true,
+    "fsevents@2.3.3": true
+  }
+}
