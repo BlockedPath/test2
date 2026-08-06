@@ -1,49 +1,50 @@
 import { Graphics } from "pixi.js";
+import { WORLD_SIZE } from "./scene.js";
 
 /**
- * 120° cone FOV + occlusion stub per CONTEXT.md and ticket #7.
- * Hard walls block LOS+bullets, foliage soft hides only. Outside cone is fogged.
- * This is a cheap Graphics mask/cone, not a full lighting shader (baked later).
- *
- * For the scaffold we draw a 120° cone forward from the player and mask
- * the world. Wall occlusion is approximated by not drawing soft fog over
- * hard-cover rectangles — full shadow casting deferred to post-scaffold.
+ * Soft FOV: outside cone is dimmed 70% (not black), inside cone is clear.
+ * Fixes "cant see" — world remains visible for navigation, cone is tactical highlight.
+ * Hard wall occlusion still stubbed; full shadow casting deferred.
  */
-export function createFovMask(): Graphics {
+export function createFovOverlay(): Graphics {
   const g = new Graphics();
   g.zIndex = 1000;
   return g;
 }
 
-export function updateFovMask(
-  mask: Graphics,
+export function updateFovOverlay(
+  overlay: Graphics,
   x: number,
   y: number,
   angle: number,
-  viewDistance = 180,
+  viewDistance = 320,
   fovRadians = (120 * Math.PI) / 180,
 ): void {
-  mask.clear();
-  // Fog outside cone: draw dark overlay with hole for cone, then use as mask inversion
-  // Simplified: draw cone as bright, rest as dark overlay — for scaffold we just draw cone shape
-  // World is masked to cone + 360 soft fallback (see CONTEXT.md: 360 excluded, but scaffold shows cone)
-  mask.beginFill(0xffffff);
-  mask.moveTo(x, y);
+  overlay.clear();
+  // Darken whole world outside cone — soft fog, not hard mask
+  overlay.beginFill(0x000000, 0.72);
+  overlay.drawRect(0, 0, WORLD_SIZE, WORLD_SIZE);
+  // Cut hole for cone (bright)
+  overlay.beginHole();
+  overlay.moveTo(x, y);
   const half = fovRadians / 2;
-  mask.lineTo(
-    x + Math.cos(angle - half) * viewDistance,
-    y + Math.sin(angle - half) * viewDistance,
-  );
-  // arc approximation
-  const steps = 16;
+  overlay.lineTo(x + Math.cos(angle - half) * viewDistance, y + Math.sin(angle - half) * viewDistance);
+  const steps = 20;
   for (let i = 1; i <= steps; i++) {
     const a = angle - half + (fovRadians * i) / steps;
-    mask.lineTo(x + Math.cos(a) * viewDistance, y + Math.sin(a) * viewDistance);
+    overlay.lineTo(x + Math.cos(a) * viewDistance, y + Math.sin(a) * viewDistance);
   }
-  mask.lineTo(
-    x + Math.cos(angle + half) * viewDistance,
-    y + Math.sin(angle + half) * viewDistance,
-  );
-  mask.lineTo(x, y);
-  mask.endFill();
+  overlay.lineTo(x + Math.cos(angle + half) * viewDistance, y + Math.sin(angle + half) * viewDistance);
+  overlay.lineTo(x, y);
+  overlay.endHole();
+  overlay.endFill();
+
+  // Small bright circle at player so you always see yourself
+  overlay.beginFill(0x000000, 0);
+  overlay.drawCircle(x, y, 10);
+  overlay.endFill();
 }
+
+// Back-compat shims for older main.ts that used mask API
+export const createFovMask = createFovOverlay;
+export const updateFovMask = updateFovOverlay;

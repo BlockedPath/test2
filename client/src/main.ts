@@ -5,7 +5,7 @@ import { AudioManager } from "./audio/audio.js";
 import { FxPool } from "./fx/pool.js";
 import { createLobbyUI } from "./lobby/lobby.js";
 import { createPixiApp } from "./pixi/app.js";
-import { createFovMask, updateFovMask } from "./pixi/fov.js";
+import { createFovOverlay, updateFovOverlay } from "./pixi/fov.js";
 import { WORLD_SIZE, createPlayerGraphics, createWorld } from "./pixi/scene.js";
 
 type PlayerSnapshot = { x: number; y: number; angle: number; hp: number; armor: number };
@@ -58,9 +58,8 @@ window.addEventListener("pointerup", () => (wantsToShoot = false));
 const app = await createPixiApp(pixiContainer, 800, 800);
 const world = createWorld();
 app.stage.addChild(world);
-const fovMask = createFovMask();
-world.addChild(fovMask);
-world.mask = fovMask;
+const fovOverlay = createFovOverlay();
+world.addChild(fovOverlay);
 
 // Audio + FX per #13: pooled, ≤6 concurrent, distance-attenuated 120m
 const audio = new AudioManager();
@@ -202,7 +201,7 @@ function tick(now: number): void {
       const ly = Math.sin(own.angle) * lookAhead;
       world.x = WORLD_SIZE / 2 - (cx + lx * 0.3);
       world.y = WORLD_SIZE / 2 - (cy + ly * 0.3);
-      updateFovMask(fovMask, cx, cy, own.angle);
+      updateFovOverlay(fovOverlay, cx, cy, own.angle);
       debugElement!.textContent = JSON.stringify(
         { tick: latestState.tick, alpha: Number(alpha.toFixed(2)), own: { x: Math.round(cx), y: Math.round(cy), hp: own.hp } },
         null,
