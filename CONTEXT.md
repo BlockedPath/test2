@@ -15,7 +15,11 @@
 - **Phase** — One zone state between shrinks.
 - **POI (Point of Interest)** — Named map area with role (hot vs edge). Connected by roads/cover/foliage grammar.
 - **Cover** — Hard (walls) blocks line-of-sight and bullets; soft (foliage) blocks sight only.
-- **Line-of-Sight / FOV** — What player can see; masked by cover/shadows. Not yet fully specified — see map language ticket #8.
+- **Controls** — **WASD + mouse aim** — move with WASD, turn/aim with mouse, fire on mouse click. Input buffered per tick (20Hz). *Avoid: click-to-move.*
+- **Camera** — **Follow tight** with mouse-direction look-ahead — camera centered on player, shifts toward cursor. Not fixed, not loose wide.
+- **FOV / Fog-of-War** — **120° forward cone + occlusion** — walls block sight and bullets (hard cover), foliage blocks sight only (soft). Outside cone is fogged; hard cover casts shadow. 360° vision explicitly excluded for realism.
+- **Aiming / Spread** — **No ADS toggle v1** — always aimed, spread fixed with movement/fire penalty, no recoil pattern to learn. Simple, matches fast TTK.
+- **Line-of-Sight / FOV** — See FOV/Fog-of-War above; drives sight checks per tick.
 - **Tick** — Server authoritative simulation step at **20Hz** (50ms) over WebSocket (Colyseus/ws), snapshot-interpolated to 60fps render (PixiJS).
 - **Authoritative Server** — Node shard is source of truth; client inputs validated, no client prediction v1.
 
@@ -28,6 +32,7 @@
 - Armor plates + bandage/medkit interruptible (Ticket #6).
 - Weapon classes AR/SG/SR (Ticket #6).
 - Win = last alive, zone lethal (Ticket #6).
+- Controls WASD+mouse, tight follow, cone FOV+occlusion, no ADS fixed spread (Ticket #7).
 - Netcode 20Hz WS + snapshot interpolation (Ticket #3).
 - Rendering PixiJS v7 + tilemap (Ticket #2).
 
