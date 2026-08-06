@@ -143,9 +143,14 @@ async function connect(): Promise<void> {
   });
 
   setInterval(() => {
-    if (!room || latestState?.lobby) return;
+    if (!room) return;
+    if (latestState?.lobby) {
+      if (wantsToShoot) {
+        statusElement!.textContent = "Can't shoot in lobby — Ready and Start with 2 (dev) first";
+      }
+      return;
+    }
     const shooting = wantsToShoot;
-    // Local FX/audio prediction (pooled, ≤6 concurrent, no per-tick alloc)
     if (shooting && latestState) {
       const own = latestState.players.get(room.sessionId);
       if (own) {
@@ -163,7 +168,7 @@ async function connect(): Promise<void> {
         shoot: shooting,
       },
     });
-    wantsToShoot = false;
+    // Keep wantsToShoot true while pointer held for continuous 20Hz fire (pointerup sets false)
   }, 50);
 
   requestAnimationFrame(tick);
