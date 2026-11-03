@@ -27,7 +27,7 @@
     "concurrently": "^9.1.0",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0",
-    "vite": "^6.0.0"
+    "vite": "^6.4.5"
   },
   "allowScripts": {
     "msgpackr-extract@3.0.4": true,
